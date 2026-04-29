@@ -1,0 +1,132 @@
+name: build and release
+on:
+  push:
+    tags: [ "v*" ]
+  workflow_dispatch:
+
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get repo files
+        uses: actions/checkout@v6
+      - name: Configure build directory
+        run: cmake -H. -B build
+      - name: Build project
+        run: cmake --build build
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v6
+        with:
+          name: Applications
+          path: |
+            ./build/hello_world_application/hello_world
+            ./build/solver_application/solver
+
+  test:
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v6
+        with:
+          name: Applications
+          path: ./apps
+      - name: Fix permissions
+        run: |
+          chmod +x ./apps/hello_world_application/hello_world
+          chmod +x ./apps/solver_application/solver
+      - name: Test hello_world
+        run: ./apps/hello_world_application/hello_world
+      - name: Test solver
+        run: echo "1 5 -6" | ./apps/solver_application/solver
+
+  create-binary-packages-rpm-deb:
+    needs: test
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Get repo files
+        uses: actions/checkout@v6
+      - name: Install rpm
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y rpm
+      - name: Create packages
+        run: |
+          cmake -H. -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+          cd build
+          cpack -G DEB -C Release
+          cpack -G RPM -C Release
+      - name: Upload binary packages
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            build/*.deb
+            build/*.rpm
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-binary-packages-dmg:
+    needs: test
+    runs-on: macos-latest
+
+    steps:
+      - name: Get repo files
+        uses: actions/checkout@v6
+      - name: Configure and build
+        run: |
+          cmake -H. -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build
+      - name: Create .dmg package
+        run: |
+          cd build
+          cpack -G DragNDrop -C Release
+      - name: Upload .dmg to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/*.dmg
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  create-binary-packages-msi:
+    needs: test
+    runs-on: windows-latest
+
+    steps:
+      - name: Get repo files
+        uses: actions/checkout@v6
+      - name: Setup .NET (for WiX)
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+      - name: Install WiX Toolset and extension
+        run: |
+          dotnet tool install --global wix --version 4.0.0
+          wix extension add --global WixToolset.UI.wixext/4.0.4
+      - name: Configure and build
+        run: |
+          mkdir build
+          cmake -B build
+          cmake --build build --config Release --verbose
+        shell: pwsh
+      - name: Create MSI package
+        run: |
+          cd build
+          cpack -G WIX -C Release --verbose
+      - name: Check for error logs
+        if: failure()
+        run: |
+          Get-Content D:/a/TIMP-lab06hw/TIMP-lab06hw/build/_CPack_Packages/win64/WIX/wix.log -ErrorAction SilentlyContinue
+      - name: Upload .msi to release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: build/*.msi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
