@@ -52,6 +52,7 @@ jobs:
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
+
     steps:
       - name: Get repo files
         uses: actions/checkout@v6
@@ -87,9 +88,9 @@ jobs:
         run: |
           cpack -G DEB -C Release
           cpack -G RPM -C Release
-      - name: Create packages DMG
-        if: matrix.os == 'macos-latest'
-        run: cpack -G DragNDrop -C Release
+     # - name: Create packages DMG
+       # if: matrix.os == 'macos-latest'
+       # run: cpack -G DragNDrop -C Release
       - name: Create packages MSI
         if: matrix.os == 'windows-latest'
         run: cpack -G WIX -C Release
