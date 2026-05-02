@@ -134,90 +134,67 @@ jobs:
       - name: Test solver
         run: echo "1 5 -6" | ./apps/solver_application/solver
 
-  create-binary-packages-rpm-deb:
+  create-binary-packages:
     needs: test
-    runs-on: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
 
     steps:
       - name: Get repo files
         uses: actions/checkout@v6
-      - name: Install rpm
+      - name: Install required dependencies Ubuntu
+        if: matrix.os == 'ubuntu-latest'
         run: |
           sudo apt-get update
           sudo apt-get install -y rpm
-      - name: Create packages
+      - name: Set up DotNet Windows
+        if: matrix.os == 'windows-latest'
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.x'
+      - name: Install required dependencies Windows
+        if: matrix.os == 'windows-latest'
         run: |
-          cmake -H. -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
+          dotnet tool install --global wix --version 4.0.0
+          wix extension add --global WixToolset.UI.wixext/4.0.4
+      - name: Configure build directory Windows
+        if: matrix.os == 'windows-latest'
+        run: |
+          mkdir build
+          cmake -B build
+      - name: Configure build directory Ubuntu and MacOS
+        if: matrix.os != 'windows-latest'
+        run: cmake -H. -B build
+      - name: Build project
+        run: cmake --build build --config Release
+      - name: Create packages DEB RPM
+        if: matrix.os == 'ubuntu-latest'
+        run: |
           cd build
           cpack -G DEB -C Release
           cpack -G RPM -C Release
+      - name: Create packages DMG
+        if: matrix.os == 'macos-latest'
+        run: |
+          cd build
+          cpack -G DragNDrop -C Release
+      - name: Create packages MSI
+        if: matrix.os == 'windows-latest'
+        run: |
+          cd build
+          cpack -G WIX -C Release
       - name: Upload binary packages
         uses: softprops/action-gh-release@v1
         with:
           files: |
             build/*.deb
             build/*.rpm
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  create-binary-packages-dmg:
-    needs: test
-    runs-on: macos-latest
-
-    steps:
-      - name: Get repo files
-        uses: actions/checkout@v6
-      - name: Configure and build
-        run: |
-          cmake -H. -B build -DCMAKE_BUILD_TYPE=Release
-          cmake --build build
-      - name: Create .dmg package
-        run: |
-          cd build
-          cpack -G DragNDrop -C Release
-      - name: Upload .dmg to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: build/*.dmg
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-  create-binary-packages-msi:
-    needs: test
-    runs-on: windows-latest
-
-    steps:
-      - name: Get repo files
-        uses: actions/checkout@v6
-      - name: Setup .NET (for WiX)
-        uses: actions/setup-dotnet@v4
-        with:
-          dotnet-version: '8.x'
-      - name: Install WiX Toolset and extension
-        run: |
-          dotnet tool install --global wix --version 4.0.0
-          wix extension add --global WixToolset.UI.wixext/4.0.4
-      - name: Configure and build
-        run: |
-          mkdir build
-          cmake -B build
-          cmake --build build --config Release --verbose
-        shell: pwsh
-      - name: Create MSI package
-        run: |
-          cd build
-          cpack -G WIX -C Release --verbose
-      - name: Check for error logs
-        if: failure()
-        run: |
-          Get-Content D:/a/TIMP-lab06hw/TIMP-lab06hw/build/_CPack_Packages/win64/WIX/wix.log -ErrorAction SilentlyContinue
-      - name: Upload .msi to release
-        uses: softprops/action-gh-release@v1
-        with:
-          files: build/*.msi
+            build/*.dmg
+            build/*.msi
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 ```
 
-Этот скрипт можно разделить на 4 части: предварительная сборка и микро-тестирование, сборка пакетов на Linux, сборка пакетов на MacOS и сборка пакетов на Windows. Первая часть уже была показана в ЛР4, а остальные 3 мы сейчас разберем. В целом, они имеют очень похожую структуру, что не удивительно, ведь они делают по сути почти одно и то же. Вначале затребуем успешное выполнение джоба `test` и зададим различные runner в зависимости от расширения пакета (для `.deb` и `.rpm` - Linux, для `.dmg` - MacOS, для `.msi` - Windows). Дальше с помощью действия `checkout` по-новой получаем файлы репозитория и собираем проект. Также при необходимости устанавливаем модули для работы с тем или иным форматом. После чего генерируем сами архивы и с помощью действия `action-gh-release` формируем релиз из файлов. В этот момент также автоматически соберутся `.zip` и `.tar.gz` всего исходного кода, поэтому для них ничего дополнительно писать не надо.
+Этот скрипт можно разделить на 2 части: предварительная сборка и микро-тестирование и сборка бинарных пакетов. Первая часть уже была показана в ЛР4, а вторую мы сейчас разберем. Вначале затребуем успешное выполнение джоба `test` и сделаем матрицу с тремя ОС, так как часть кода там повторяется. Дальше устанавливаем различные зависимости индивидуально для каждой ОС и собираем программу, также учитывая особенности операционок. И наконец собираем резилы программы разных форматов (для `.deb` и `.rpm` - Linux, для `.dmg` - MacOS, для `.msi` - Windows). После чего с помощью действия `action-gh-release` формируем релиз из архивов. В этот момент также автоматически соберутся `.zip` и `.tar.gz` всего исходного кода, поэтому для них ничего дополнительно писать не надо.
