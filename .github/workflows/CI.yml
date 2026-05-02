@@ -80,20 +80,23 @@ jobs:
         if: matrix.os != 'windows-latest'
         run: cmake -H. -B build
       - name: Build project
-        run: |
-          cmake --build build --config Release
-          cd build
+        run: cmake --build build --config Release
       - name: Create packages DEB RPM
         if: matrix.os == 'ubuntu-latest'
         run: |
+          cd build
           cpack -G DEB -C Release
           cpack -G RPM -C Release
       - name: Create packages DMG
         if: matrix.os == 'macos-latest'
-        run: cpack -G DragNDrop -C Release
+        run: |
+          cd build
+          cpack -G DragNDrop -C Release
       - name: Create packages MSI
         if: matrix.os == 'windows-latest'
-        run: cpack -G WIX -C Release
+        run: |
+          cd build
+          cpack -G WIX -C Release
       - name: Upload binary packages
         uses: softprops/action-gh-release@v1
         with:
